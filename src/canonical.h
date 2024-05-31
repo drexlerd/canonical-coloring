@@ -5,6 +5,7 @@
 #include <set>
 #include <vector>
 #include <cassert>
+#include <algorithm>
 
 #include "digraph.h"
 #include "util.h"
@@ -168,7 +169,7 @@ class CanonicalColoring {
         k_ = 0;
         colour_.at(0) = -1;
         for( int v = 0; v < n; ++v ) {
-            C_.at(alpha.at(v)).insert(v+1); 
+            C_.at(alpha.at(v)).insert(v+1);
             colour_.at(v+1) = alpha.at(v);
             k_ = std::max(k_, alpha.at(v));
         }
@@ -260,7 +261,7 @@ class CanonicalColoring {
                 if( mincdeg_.at(c) < maxcdeg_.at(c) )
                     colors_split.push_back(c);
             }
-            sort(colors_split.begin(), colors_split.end());
+            std::sort(colors_split.begin(), colors_split.end());
 
             if( debug_ > 0 ) std::cout << "  colors_split: " << colors_split << " (ordered)" << std::endl;
 
