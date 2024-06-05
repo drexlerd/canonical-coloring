@@ -2,6 +2,7 @@
 #define CANONICAL_H
 
 #include <algorithm>
+#include <deque>
 #include <iostream>
 #include <limits>
 #include <set>
@@ -13,54 +14,14 @@
 #include "util.h"
 
 template<typename T>
-class Stack {
-  protected:
-    std::vector<T> stack_;
-
-  public:
-    Stack() { }
-    ~Stack() { }
-
-    void initialize(int n) {
-        stack_.resize(0);
-        stack_.reserve(n);
-    }
-
-    bool empty() const { return stack_.empty(); }
-    const T& top() const {
-        if( !stack_.empty() )
-            return stack_.back();
-        else
-            throw std::runtime_error("Attempt top() on empty stack");
-    }
-    T pop() {
-        if( !stack_.empty() ) {
-            T item = stack_.back();
-            stack_.pop_back();
-            return item;
-        } else {
-            throw std::runtime_error("Attempt pop() on empty stack");
-        }
-    }
-    int push(const T item) {
-        stack_.push_back(item);
-        return stack_.back();
-    }
-
-    void print(std::ostream &os) const {
-        os << stack_;
-    }
-};
-
-template<typename T>
-std::ostream& operator<<(std::ostream &os, const Stack<T> &stack) {
-    stack.print(os);
-    return os;
+std::ostream& operator<<(std::ostream &os, const std::deque<T> &deque) {
+    return os << std::vector<T>(deque.begin(), deque.end());
 }
 
 class CanonicalColoring {
   protected:
-    const int debug_;
+    int debug_;
+    bool use_stack_;
 
     std::vector<std::set<int> >    C_;  // Indexed by color. Partition. C[c] is set of vertices with color c
     std::vector<std::vector<int> > A_;  // Indexed by color. A[c] is vertices of color c adjacent to vertices of color r
@@ -73,7 +34,7 @@ class CanonicalColoring {
     std::vector<std::vector<int> > QM_; // Quotient matrix
 
     int k_;
-    Stack<int> s_refine_;
+    std::deque<int> s_refine_;
     std::vector<bool> in_s_refine_;
 
     void split_up_color(int s) {
@@ -100,11 +61,11 @@ class CanonicalColoring {
 
         if( debug_ > 1 ) std::cout << "                b: " << b << " (index for max entry in numcdeg)" << std::endl;
 
-        bool in_stack = in_s_refine_.at(s);
+        bool color_s_is_in_s_refine = in_s_refine_.at(s);
 
         if( debug_ > 1 ) {
-            std::cout << "            stack: " << s_refine_ << std::endl;
-            std::cout << "    Is s in stack? " << in_stack << std::endl;
+            std::cout << "         s_refine: " << s_refine_ << std::endl;
+            std::cout << " Is s in s_refine? " << color_s_is_in_s_refine << std::endl;
         }
 
         std::vector<int> f(1 + maxcdeg, -1);
@@ -112,16 +73,18 @@ class CanonicalColoring {
             if( numcdeg.at(i) > 0 ) {
                 if( i == mincdeg_.at(s) ) {
                     f.at(i) = s;
-                    if( !in_stack and i != b ) {
-                        s_refine_.push(f.at(i));
+                    if( !color_s_is_in_s_refine and i != b ) {
+                        assert(!in_s_refine_.at(f.at(i)));
                         in_s_refine_.at(f.at(i)) = true;
+                        s_refine_.push_back(f.at(i));
                     }
                 } else {
                     k_ = k_ + 1;
                     f.at(i) = k_;
-                    if( in_stack or i != b ) {
-                        s_refine_.push(f.at(i));
+                    if( color_s_is_in_s_refine or i != b ) {
+                        assert(!in_s_refine_.at(f.at(i)));
                         in_s_refine_.at(f.at(i)) = true;
+                        s_refine_.push_back(f.at(i));
                     }
                 }
             }
@@ -141,11 +104,13 @@ class CanonicalColoring {
 
         if( debug_ > 1 ) {
             std::cout << "                C: " << C_ << std::endl;
-            std::cout << "            stack: " << s_refine_ << std::endl;
+            std::cout << "         s_refine: " << s_refine_ << std::endl;
         }
     }
 
     void calculate_quotient_matrix(const Digraph &graph) {
+        // Partition C_ has been simplified; indeed, C_.size() == k_
+        assert(C_.size() == k_);
         QM_ = std::vector<std::vector<int> >();
         for( int i = 0; i < k_; ++i ) {
             int u = *C_.at(i).begin();
@@ -165,8 +130,11 @@ class CanonicalColoring {
     }
 
   public:
-    CanonicalColoring(int debug = 0) : debug_(debug), valid_QM_(false) { }
+    CanonicalColoring(int debug = 0, bool use_stack = false) : debug_(debug), use_stack_(use_stack), valid_QM_(false) { }
     ~CanonicalColoring() { }
+
+    void set_debug(int debug) { debug_ = debug; }
+    void set_use_stack(bool use_stack) { use_stack_ = use_stack; }
 
     const std::vector<int>& coloring() const { return colour_; }
     const std::vector<std::set<int> >& partition() const { return C_; }
@@ -193,8 +161,8 @@ class CanonicalColoring {
             frequency.at(c) += 1;
         }
 
+        if( frequency.back() == 0 ) gaps.push_back(frequency.size() - 1);
         for( size_t i = frequency.size() - 1; i > 0; --i ) {
-            assert(frequency.at(i) > 0);
             if( i > 1 and frequency.at(i-1) == 0 )
                 gaps.push_back(i-1);
         }
@@ -216,6 +184,7 @@ class CanonicalColoring {
         if( CanonicalColoring::check_coloring(alpha, true) != 0 )
             throw std::runtime_error("invalid initial coloring");
 
+        // Create data structures
         int n = graph.order();
         colour_ = std::vector<int>(n+1, 0);
         C_ = std::vector<std::set<int> >(n+1);
@@ -236,42 +205,46 @@ class CanonicalColoring {
         }
 
         if( debug_ > 0 ) {
-            std::cout << "           C: " << C_ << std::endl;
-            std::cout << "      colour: " << colour_ << std::endl;
-            std::cout << "           k: " << k_ << std::endl;
+            std::cout << "             C: " << C_ << std::endl;
+            std::cout << "        colour: " << colour_ << std::endl;
+            std::cout << "             k: " << k_ << std::endl;
         }
 
-        std::vector<int> colors_adj;   // Colors adjacent to color r (popped from stack)
+        std::vector<int> colors_adj;   // Colors adjacent to color r
         std::vector<int> colors_split; // Colors in colors_adj that generate non-trivial splits
 
-        s_refine_.initialize(n);
         in_s_refine_ = std::vector<bool>(n+1, false);
         std::vector<bool> in_colors_adj(n+1, false);
         colors_adj.reserve(n+1);
         colors_split.reserve(n+1);
 
-        // Initialize stack
+        // Initialize s_refine with S = {1, 2, ..., k}, where k is #colors in initial alpha as a "sufficient refining colour set"
         for( int c = 1; c <= k_; ++c ) {
             in_s_refine_.at(c) = true;
-            s_refine_.push(c);
+            s_refine_.push_back(c);
         }
 
         if( debug_ > 0 ) {
-            std::cout << "       stack: " << s_refine_ << std::endl;
-            std::cout << "    in_stack: " << in_s_refine_ << std::endl;
+            std::cout << "      s_refine: " << s_refine_ << std::endl;
+            std::cout << "   in_s_refine: " << in_s_refine_ << std::endl;
         }
 
         // Main loop
         while( !s_refine_.empty() ) {
-            int r = s_refine_.pop();
+            int r = use_stack_ ? s_refine_.back() : s_refine_.front();
+            if( use_stack_ )
+                s_refine_.pop_back();
+            else
+                s_refine_.pop_front();
             in_s_refine_.at(r) = false;
 
             if( debug_ > 0 ) {
-                std::cout << std::endl << "** Pop color r=" << r << ", stack: " << s_refine_ << std::endl;
+                std::cout << std::endl << "** Pop color r=" << r << ", s_refine: " << s_refine_ << std::endl;
                 std::cout << "        colour: " << colour_ << std::endl;
                 std::cout << "          cdeg: " << cdeg_ << std::endl;
                 std::cout << "       maxcdeg: " << maxcdeg_ << std::endl;
                 std::cout << "          C[" << r << "]: " << C_.at(r) << std::endl;
+                std::cout << "             C: " << C_ << std::endl;
             }
 
             // Compute color degrees, max color degrees, A[i], and color_adj
@@ -343,25 +316,27 @@ class CanonicalColoring {
             colors_adj.resize(0);
 
             if( debug_ > 0 ) {
-                std::cout << "     new stack: " << s_refine_ << std::endl;
-                std::cout << "      in_stack: " << in_s_refine_ << std::endl;
+                std::cout << "  new s_refine: " << s_refine_ << std::endl;
+                std::cout << "   in_s_refine: " << in_s_refine_ << std::endl;
             }
         }
 
         // Simplify, calculate quotient matrix,  and return canonical equitable partition
-        C_.assign(C_.begin() + 1, C_.begin() + 1 + k_);
+        for( int i = 0; i < k_; ++i ) C_[i] = std::move(C_[i+1]);
+        while( C_.size() > k_ ) C_.pop_back();
         if( calculate_qm ) calculate_quotient_matrix(graph);
         return C_;
     }
 
     static std::vector<int> histogram(const std::vector<std::set<int> > &partition) {
-        std::vector<int> hist;
+        std::vector<int> hist(partition.size(), 0);
         for( size_t i = 0; i < partition.size(); ++i )
-            hist.push_back(partition.at(i).size());
+            hist[i] = partition.at(i).size();
         return hist;
     }
 
     std::vector<int> histogram() const {
+        assert(C_.size() == k_);
         return CanonicalColoring::histogram(C_);
     }
 
@@ -371,6 +346,7 @@ class CanonicalColoring {
     }
 
     std::string quotient_matrix_str() const {
+        assert(C_.size() == k_);
         if( !valid_QM_ ) throw std::runtime_error("invalid quotient matrix: call calculate() with third argument set to true");
 
         std::string code;
